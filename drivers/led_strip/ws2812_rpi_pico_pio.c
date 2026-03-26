@@ -90,7 +90,7 @@ static int ws2812_led_strip_sm_init(const struct device *dev)
 
 	sm_config_set_sideset(&sm_config, 1, false, false);
 	sm_config_set_sideset_pins(&sm_config, config->gpio_pin);
-	sm_config_set_out_shift(&sm_config, false, true, (config->num_colors == 4 ? 32 : 24));
+	sm_config_set_out_shift(&sm_config, false, true, 8);
 	sm_config_set_fifo_join(&sm_config, PIO_FIFO_JOIN_TX);
 	sm_config_set_clkdiv(&sm_config, clkdiv);
 	pio_sm_set_consecutive_pindirs(pio, sm, config->gpio_pin, 1, true);
@@ -242,6 +242,35 @@ static inline bool ws2812_led_strip_use_dma(const struct device *dev)
 
 #endif /* defined(CONFIG_DMA) */
 
+
+static int ws2812_led_strip_update_channels(const struct device *dev, uint8_t *channels,
+					size_t num_channels)
+{
+	const struct ws2812_led_strip_config *config = dev->config;
+	struct ws2812_led_strip_data *data = dev->data;
+	PIO pio = pio_rpi_pico_get_pio(config->piodev);
+
+	/* Wait for the delay needed to latch current color values on
+	 * WS2812 and reset its state machine.
+	 */
+	k_timer_status_sync(&data->reset_on_complete_timer);
+
+	// #if defined(CONFIG_DMA)
+	// 	if (ws2812_led_strip_use_dma(dev)) {
+	// 		return ws2812_led_strip_start_dma_put(dev, pixels, num_pixels);
+	// 	}
+	// #endif
+
+	for (size_t i = 0; i < num_channels; i++) {
+		uint32_t channel = channels[i] << 24;
+		pio_sm_put_blocking(pio, data->sm, channel);
+	}
+
+	k_timer_start(&data->reset_on_complete_timer, K_USEC(config->reset_delay), K_NO_WAIT);
+
+	return 0;
+}
+
 static int ws2812_led_strip_update_rgb(const struct device *dev, struct led_rgb *pixels,
 				       size_t num_pixels)
 {
@@ -261,7 +290,10 @@ static int ws2812_led_strip_update_rgb(const struct device *dev, struct led_rgb 
 #endif
 
 	for (size_t i = 0; i < num_pixels; i++) {
-		pio_sm_put_blocking(pio, data->sm, ws2812_led_strip_map_color(dev, &pixels[i]));
+		uint32_t color = ws2812_led_strip_map_color(dev, &pixels[i]);
+		pio_sm_put_blocking(pio, data->sm, color);
+		pio_sm_put_blocking(pio, data->sm, color << 8);
+		pio_sm_put_blocking(pio, data->sm, color << 16);
 	}
 
 	k_timer_start(&data->reset_on_complete_timer, K_USEC(config->reset_delay), K_NO_WAIT);
@@ -279,6 +311,7 @@ static size_t ws2812_led_strip_length(const struct device *dev)
 static DEVICE_API(led_strip, ws2812_led_strip_api) = {
 	.update_rgb = ws2812_led_strip_update_rgb,
 	.length = ws2812_led_strip_length,
+	.update_channels = ws2812_led_strip_update_channels,
 };
 
 /*
