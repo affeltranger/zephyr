@@ -129,6 +129,14 @@ static int send_buf(const struct device *dev, uint8_t *buf, size_t len)
 	return rc;
 }
 
+
+static int ws2812_gpio_update_channels(const struct device *dev,
+				       uint8_t *channels,
+				       size_t num_channels)
+{
+	return send_buf(dev, channels, num_channels);
+}
+
 static int ws2812_gpio_update_rgb(const struct device *dev,
 				  struct led_rgb *pixels,
 				  size_t num_pixels)
@@ -176,6 +184,7 @@ static size_t ws2812_gpio_length(const struct device *dev)
 static DEVICE_API(led_strip, ws2812_gpio_api) = {
 	.update_rgb = ws2812_gpio_update_rgb,
 	.length = ws2812_gpio_length,
+	.update_channels = ws2812_gpio_update_channels
 };
 
 /*
